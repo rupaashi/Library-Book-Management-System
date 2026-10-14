@@ -1,0 +1,200 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Libra | Library Management</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="layout">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <h2 class="logo">📚 Libra</h2>
+
+            <p class="menu-title">MAIN MENU</p>
+            <a href="#" class="nav-link active">🏠 Dashboard</a>
+            <a href="#books" class="nav-link">📖 Books</a>
+            <a href="#members" class="nav-link">👥 Members</a>
+            <a href="#activity" class="nav-link">📋 Recent Activity</a>
+
+            <div class="sidebar-footer">
+                <p>Library Management</p>
+                <small>Book Management System</small>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- Header -->
+            <header class="topbar">
+                <div>
+                    <h1>Dashboard</h1>
+                    <p>Welcome back! Here's your library overview.</p>
+                </div>
+
+                <div class="profile">
+                    <span class="avatar">A</span>
+                    <div>
+                        <strong>Admin</strong>
+                        <small>Library Administrator</small>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard Statistics -->
+            <section class="stats">
+
+                <div class="stat-card">
+                    <span class="stat-icon purple">📚</span>
+                    <p>Total Books</p>
+                    <h2 id="totalBooks">0</h2>
+                    <small>Books in the library</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-icon green">👥</span>
+                    <p>Total Members</p>
+                    <h2 id="totalMembers">0</h2>
+                    <small>Registered members</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-icon orange">📤</span>
+                    <p>Books Issued</p>
+                    <h2>185</h2>
+                    <small>Currently borrowed</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-icon blue">📥</span>
+                    <p>Available Books</p>
+                    <h2>1,065</h2>
+                    <small>Ready to borrow</small>
+                </div>
+
+            </section>
+
+            <!-- Books Section -->
+            <section class="panel" id="books">
+
+                <div class="section-heading">
+                    <div>
+                        <h2>Book Collection</h2>
+                        <p>Browse and manage your library books.</p>
+                    </div>
+
+                    <button id="addBookBtn">+ Add Book</button>
+                </div>
+
+                <div class="toolbar">
+                    <input
+                        type="text"
+                        id="searchInput"
+                        placeholder="Search by title, author, or book ID..."
+                    >
+
+                    <select id="categoryFilter">
+                        <option value="All">All Categories</option>
+                        <option value="Technology">Technology</option>
+                        <option value="Science">Science</option>
+                        <option value="Fiction">Fiction</option>
+                        <option value="Management">Management</option>
+                    </select>
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>BOOK ID</th>
+                                <th>TITLE</th>
+                                <th>AUTHOR</th>
+                                <th>CATEGORY</th>
+                                <th>STATUS</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="bookTable">
+                            <tr>
+                                <td colspan="5">Loading books...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </section>
+
+            <!-- Members Section -->
+            <section class="panel" id="members">
+
+                <div class="section-heading">
+                    <div>
+                        <h2>Library Members</h2>
+                        <p>Registered members stored in the database.</p>
+                    </div>
+
+                    <button id="addMemberBtn">+ Add Member</button>
+                </div>
+
+                <div class="toolbar">
+                    <input
+                        type="text"
+                        id="memberSearchInput"
+                        placeholder="Search by name or registration number..."
+                    >
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>MEMBER ID</th>
+                                <th>REGISTRATION NO.</th>
+                                <th>NAME</th>
+                                <th>EMAIL</th>
+                                <th>PHONE</th>
+                                <th>MEMBER TYPE</th>
+                                <th>STATUS</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="memberTable">
+                            <tr>
+                                <td colspan="7">Loading members...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </section>
+
+            <!-- Recent Activity Section -->
+            <section class="panel" id="activity">
+                <div class="section-heading">
+                    <div>
+                        <h2>Recent Activity</h2>
+                        <p>Library activity overview.</p>
+                    </div>
+                </div>
+
+                <p>Recent book issue and return activity will appear here.</p>
+            </section>
+
+            <!-- Footer -->
+            <footer>
+                © 2026 Libra Library Management System
+            </footer>
+
+        </main>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="script.js"></script>
+
+</body>
+</html>
