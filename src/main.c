@@ -7,6 +7,27 @@
 #include "../include/book.h"
 #include "../include/member.h"
 #include "../include/search_sort.h"
+#include "../include/circulation.h"
+
+/* Ask for a whole number. Returns 1 on success, 0 on bad input
+   (the bad input is discarded so the menu keeps working). */
+static int readInt(const char *prompt, int *value)
+{
+    printf("%s", prompt);
+
+    if (scanf("%d", value) != 1)
+    {
+        int ch;
+        while ((ch = getchar()) != '\n' && ch != EOF)
+        {
+        }
+
+        printf("Invalid input. Please enter a number.\n");
+        return 0;
+    }
+
+    return 1;
+}
 
 int main()
 {
@@ -35,6 +56,11 @@ int main()
         printf("8. Search Member by ID\n");
         printf("9. Deactivate Book\n");
         printf("10. Deactivate Member\n");
+        printf("11. Issue Book\n");
+        printf("12. Return Book\n");
+        printf("13. Renew Loan\n");
+        printf("14. View Active Loans\n");
+        printf("15. View Overdue Loans\n");
         printf("0. Exit\n");
         printf("Enter your choice: ");
 
@@ -213,6 +239,52 @@ case 8:
                 deactivateMember(memberHead, id);
                 break;
 
+            case 11:
+            {
+                int memberID, bookID;
+
+                if (readInt("Enter Member ID: ", &memberID) &&
+                    readInt("Enter Book ID: ", &bookID))
+                {
+                    issueBook(memberID, bookID);
+                }
+                break;
+            }
+
+            case 12:
+            {
+                int loanID;
+
+                if (readInt("Enter Loan ID to return: ", &loanID))
+                    returnBook(loanID);
+                break;
+            }
+
+            case 13:
+            {
+                int loanID;
+
+                if (readInt("Enter Loan ID to renew: ", &loanID))
+                    renewLoan(loanID);
+                break;
+            }
+
+            case 14:
+            {
+                int memberID;
+
+                if (readInt("Enter Member ID (0 for all members): ",
+                            &memberID))
+                {
+                    displayActiveLoans(memberID);
+                }
+                break;
+            }
+
+            case 15:
+                displayOverdueLoans();
+                break;
+
             case 0:
                 printf("Exiting Library Management System...\n");
                 break;
@@ -241,4 +313,3 @@ case 8:
     closeDB();
     return 0;
 }
-
