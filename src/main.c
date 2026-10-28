@@ -8,6 +8,8 @@
 #include "../include/member.h"
 #include "../include/search_sort.h"
 #include "../include/circulation.h"
+#include "../include/reservation.h"
+#include "../include/fine.h"
 
 /* Ask for a whole number. Returns 1 on success, 0 on bad input
    (the bad input is discarded so the menu keeps working). */
@@ -45,6 +47,10 @@ int main()
 
     do
     {
+        /* Housekeeping: release reservation holds that were not collected
+           in time (silent when there is nothing to do). */
+        processExpiredReservations(0);
+
         printf("\n===== LIBRARY MANAGEMENT SYSTEM =====\n");
         printf("1. Add Book\n");
         printf("2. Display Books\n");
@@ -61,6 +67,12 @@ int main()
         printf("13. Renew Loan\n");
         printf("14. View Active Loans\n");
         printf("15. View Overdue Loans\n");
+        printf("16. Reserve Book\n");
+        printf("17. Cancel Reservation\n");
+        printf("18. View Reservation Queue\n");
+        printf("19. Expire Uncollected Reservations\n");
+        printf("20. View Unpaid Fines\n");
+        printf("21. Pay Fine (in full)\n");
         printf("0. Exit\n");
         printf("Enter your choice: ");
 
@@ -284,6 +296,60 @@ case 8:
             case 15:
                 displayOverdueLoans();
                 break;
+
+            case 16:
+            {
+                int memberID, bookID;
+
+                if (readInt("Enter Member ID: ", &memberID) &&
+                    readInt("Enter Book ID to reserve: ", &bookID))
+                {
+                    placeReservation(memberID, bookID);
+                }
+                break;
+            }
+
+            case 17:
+            {
+                int reservationID;
+
+                if (readInt("Enter Reservation ID to cancel: ",
+                            &reservationID))
+                    cancelReservation(reservationID);
+                break;
+            }
+
+            case 18:
+            {
+                int bookID;
+
+                if (readInt("Enter Book ID (0 for all titles): ", &bookID))
+                    displayReservationQueue(bookID);
+                break;
+            }
+
+            case 19:
+                processExpiredReservations(1);
+                break;
+
+            case 20:
+            {
+                int memberID;
+
+                if (readInt("Enter Member ID (0 for all members): ",
+                            &memberID))
+                    displayUnpaidFines(memberID);
+                break;
+            }
+
+            case 21:
+            {
+                int fineID;
+
+                if (readInt("Enter Fine ID to pay in full: ", &fineID))
+                    payFine(fineID);
+                break;
+            }
 
             case 0:
                 printf("Exiting Library Management System...\n");

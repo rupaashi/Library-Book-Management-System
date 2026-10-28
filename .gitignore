@@ -1,0 +1,5 @@
+# compiled programs
+*.exe
+
+# Python cache (the Flask backend creates this)
+__pycache__/

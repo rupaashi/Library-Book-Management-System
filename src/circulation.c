@@ -5,273 +5,9 @@
 #include "../include/circulation.h"
 #include "../include/config.h"
 #include "../include/db.h"
-
-#define MAX_PARAMS 4    /* most "?" placeholders any statement here uses */
-#define MAX_COLS   8    /* most result columns any query here returns    */
-#define CELL       64   /* characters kept for one result value          */
-
-/* The type of MYSQL_BIND.is_null differs between client library
-   versions (char, my_bool or bool), so we ask the compiler for it. */
-typedef __typeof__(*((MYSQL_BIND *)0)->is_null) NullFlag;
-
-
-/* =================================================================
-   Prepared-statement helpers.
-
-   A prepared statement sends the SQL text to the server first, with
-   "?" placeholders, and sends the values separately. The values are
-   never pasted into the SQL text, so user input cannot change what
-   the SQL means (this is what prevents SQL injection).
-   ================================================================= */
-
-/* Prepare, bind integer parameters and execute.
-   Returns the executed statement (caller must mysql_stmt_close it),
-   or NULL after printing the database error. */
-static MYSQL_STMT *runStmt(MYSQL *conn, const char *sql,
-                           int *params, int nParams)
-{
-    MYSQL_STMT *stmt = mysql_stmt_init(conn);
-
-    if (stmt == NULL)
-    {
-        printf("Memory allocation failed!\n");
-        return NULL;
-    }
-
-    if (mysql_stmt_prepare(stmt, sql, (unsigned long)strlen(sql)) != 0)
-    {
-        printf("Database error (prepare): %s\n", mysql_stmt_error(stmt));
-        mysql_stmt_close(stmt);
-        return NULL;
-    }
-
-    if (nParams > 0)
-    {
-        MYSQL_BIND binds[MAX_PARAMS];
-        memset(binds, 0, sizeof(binds));
-
-        for (int i = 0; i < nParams; i++)
-        {
-            binds[i].buffer_type = MYSQL_TYPE_LONG;   /* 4-byte int */
-            binds[i].buffer = &params[i];
-        }
-
-        if (mysql_stmt_bind_param(stmt, binds) != 0)
-        {
-            printf("Database error (bind): %s\n", mysql_stmt_error(stmt));
-            mysql_stmt_close(stmt);
-            return NULL;
-        }
-    }
-
-    if (mysql_stmt_execute(stmt) != 0)
-    {
-        printf("Database error: %s\n", mysql_stmt_error(stmt));
-        mysql_stmt_close(stmt);
-        return NULL;
-    }
-
-    return stmt;
-}
-
-/* Run an INSERT/UPDATE. Returns the number of rows changed, or -1 on
-   error. If insertID is not NULL it receives the new AUTO_INCREMENT id. */
-static long long runUpdate(MYSQL *conn, const char *sql,
-                           int *params, int nParams,
-                           unsigned long long *insertID)
-{
-    MYSQL_STMT *stmt = runStmt(conn, sql, params, nParams);
-
-    if (stmt == NULL)
-        return -1;
-
-    long long changed = (long long)mysql_stmt_affected_rows(stmt);
-
-    if (insertID != NULL)
-        *insertID = (unsigned long long)mysql_stmt_insert_id(stmt);
-
-    mysql_stmt_close(stmt);
-    return changed;
-}
-
-/* Describe nCols result columns, all fetched as text. Numbers, dates
-   and DECIMAL money values all arrive as strings, so no floating
-   point is ever involved. */
-static void bindResults(MYSQL_BIND *res, char out[][CELL],
-                        unsigned long *lengths, NullFlag *nulls, int nCols)
-{
-    memset(res, 0, sizeof(MYSQL_BIND) * (size_t)nCols);
-
-    for (int i = 0; i < nCols; i++)
-    {
-        res[i].buffer_type   = MYSQL_TYPE_STRING;
-        res[i].buffer        = out[i];
-        res[i].buffer_length = CELL - 1;
-        res[i].length        = &lengths[i];
-        res[i].is_null       = &nulls[i];
-    }
-}
-
-/* Add the closing '\0' to each fetched value (SQL NULL becomes ""). */
-static void finishCells(char out[][CELL], unsigned long *lengths,
-                        NullFlag *nulls, int nCols)
-{
-    for (int i = 0; i < nCols; i++)
-    {
-        if (nulls[i])
-            out[i][0] = '\0';
-        else
-        {
-            size_t n = lengths[i] < CELL - 1 ? lengths[i] : CELL - 1;
-            out[i][n] = '\0';
-        }
-    }
-}
-
-/* Run a SELECT and read only its FIRST row.
-   Returns 1 = row read, 0 = no rows, -1 = error. */
-static int queryRow(MYSQL *conn, const char *sql, int *params, int nParams,
-                    char out[][CELL], int nCols)
-{
-    MYSQL_STMT *stmt = runStmt(conn, sql, params, nParams);
-
-    if (stmt == NULL)
-        return -1;
-
-    MYSQL_BIND res[MAX_COLS];
-    unsigned long lengths[MAX_COLS];
-    NullFlag nulls[MAX_COLS];
-
-    bindResults(res, out, lengths, nulls, nCols);
-
-    if (mysql_stmt_bind_result(stmt, res) != 0 ||
-        mysql_stmt_store_result(stmt) != 0)
-    {
-        printf("Database error (result): %s\n", mysql_stmt_error(stmt));
-        mysql_stmt_close(stmt);
-        return -1;
-    }
-
-    int rc = mysql_stmt_fetch(stmt);
-    int found;
-
-    if (rc == MYSQL_NO_DATA)
-        found = 0;
-    else if (rc == 1)
-    {
-        printf("Database error (fetch): %s\n", mysql_stmt_error(stmt));
-        found = -1;
-    }
-    else
-    {
-        finishCells(out, lengths, nulls, nCols);
-        found = 1;
-    }
-
-    mysql_stmt_close(stmt);
-    return found;
-}
-
-
-/* =================================================================
-   Transaction helpers. A transaction makes several statements succeed
-   or fail TOGETHER: either COMMIT saves all of them, or ROLLBACK
-   undoes all of them.
-   ================================================================= */
-
-static int beginTx(MYSQL *conn)
-{
-    if (mysql_query(conn, "START TRANSACTION") != 0)
-    {
-        printf("Could not start transaction: %s\n", mysql_error(conn));
-        return 0;
-    }
-    return 1;
-}
-
-static void rollbackTx(MYSQL *conn)
-{
-    mysql_query(conn, "ROLLBACK");
-}
-
-static int commitTx(MYSQL *conn)
-{
-    if (mysql_query(conn, "COMMIT") != 0)
-    {
-        printf("Could not save changes: %s\n", mysql_error(conn));
-        rollbackTx(conn);
-        return 0;
-    }
-    return 1;
-}
-
-/* Undo everything done so far, optionally print why, and return 0. */
-static int abortTx(MYSQL *conn, const char *message)
-{
-    rollbackTx(conn);
-
-    if (message != NULL)
-        printf("%s\n", message);
-
-    return 0;
-}
-
-
-/* =================================================================
-   Eligibility check shared by issuing and renewing.
-   Returns 1 = eligible, 0 = not eligible (reason printed), -1 = error.
-   ================================================================= */
-static int checkMemberEligible(MYSQL *conn, int memberID)
-{
-    char row[MAX_COLS][CELL];
-    int params[1] = { memberID };
-
-    int found = queryRow(conn,
-        "SELECT active, memberType = 'Student' "
-        "FROM MEMBERS WHERE memberID = ?",
-        params, 1, row, 2);
-
-    if (found < 0)
-        return -1;
-
-    if (found == 0)
-    {
-        printf("Member %d does not exist.\n", memberID);
-        return 0;
-    }
-
-    if (atoi(row[0]) == 0)
-    {
-        printf("Member %d is inactive.\n", memberID);
-        return 0;
-    }
-
-    if (atoi(row[1]) == 0)
-    {
-        printf("Member %d is not a student. Only students can borrow.\n",
-               memberID);
-        return 0;
-    }
-
-    /* Unpaid fines block borrowing and renewing (project rule). */
-    found = queryRow(conn,
-        "SELECT COUNT(*), COALESCE(SUM(f.amount), 0) "
-        "FROM FINES f JOIN LOANS l ON l.loanID = f.loanID "
-        "WHERE l.memberID = ? AND f.status = 'UNPAID'",
-        params, 1, row, 2);
-
-    if (found < 0)
-        return -1;
-
-    if (found == 1 && atoi(row[0]) > 0)
-    {
-        printf("Member %d has %s unpaid fine(s) totalling Rs %s. "
-               "Pay them first.\n", memberID, row[0], row[1]);
-        return 0;
-    }
-
-    return 1;
-}
+#include "../include/dbhelpers.h"
+#include "../include/fine.h"
+#include "../include/reservation.h"
 
 
 /* =================================================================
@@ -293,7 +29,7 @@ int issueBook(int memberID, int bookID)
     char row[MAX_COLS][CELL];
 
     /* 1. Is the member allowed to borrow? */
-    int eligible = checkMemberEligible(conn, memberID);
+    int eligible = checkMemberEligible(conn, memberID, 1);
 
     if (eligible != 1)
         return abortTx(conn, NULL);
@@ -367,12 +103,15 @@ int issueBook(int memberID, int bookID)
     if (changed != 1)
         return abortTx(conn, NULL);
 
-    /* 6. If this student was holding a READY reservation, it is used up. */
+    /* 6. Borrowing the title satisfies this student's reservation for it
+       (READY = the held copy was used; WAITING = a copy turned up before
+       their turn, e.g. they paid a fine that had been blocking them). */
     int resParams[2] = { bookID, memberID };
 
     if (runUpdate(conn,
             "UPDATE RESERVATIONS SET status = 'FULFILLED' "
-            "WHERE bookID = ? AND memberID = ? AND status = 'READY'",
+            "WHERE bookID = ? AND memberID = ? "
+            "AND status IN ('READY', 'WAITING')",
             resParams, 2, NULL) < 0)
         return abortTx(conn, NULL);
 
@@ -459,25 +198,21 @@ int returnBook(int loanID)
         printf("Warning: stock for book %d was already at its maximum. "
                "Ask the catalogue owner to check the copy counts.\n", bookID);
 
-    /* 4. Overdue? Record ONE fine. UNIQUE(loanID) plus
-       ON DUPLICATE KEY makes a retry harmless. Whole-rupee integer
-       maths happens inside MySQL on DECIMAL values. */
-    if (daysLate > 0)
-    {
-        int fineParams[2] = { FINE_RATE_PER_DAY, loanID };
+    /* 3b. A copy is back on the shelf: hand it to the oldest eligible
+       WAITING reservation (status -> READY). This runs inside the same
+       transaction, so a failure here also undoes the return. */
+    int promotedIDs[PROMOTE_MAX];
+    int promoted = promoteNext(conn, bookID, promotedIDs, PROMOTE_MAX);
 
-        if (runUpdate(conn,
-                "INSERT INTO FINES (loanID, amount) "
-                "SELECT loanID, DATEDIFF(returnDate, dueDate) * ? "
-                "FROM LOANS WHERE loanID = ? AND returnDate > dueDate "
-                "ON DUPLICATE KEY UPDATE fineID = fineID",
-                fineParams, 2, NULL) < 0)
-            return abortTx(conn, NULL);
+    if (promoted < 0)
+        return abortTx(conn, NULL);
 
-        if (queryRow(conn, "SELECT amount FROM FINES WHERE loanID = ?",
-                     idParam, 1, row, 1) < 0)
-            return abortTx(conn, NULL);
-    }
+    /* 4. Overdue? Record ONE fine (see fine.c). It runs in this same
+       transaction, so a failure here also undoes the return. */
+    char fineAmount[CELL] = "";
+
+    if (createFine(conn, loanID, daysLate, fineAmount, sizeof(fineAmount)) < 0)
+        return abortTx(conn, NULL);
 
     if (!commitTx(conn))
         return 0;
@@ -486,10 +221,12 @@ int returnBook(int loanID)
 
     if (daysLate > 0)
         printf("Returned %d day(s) late. Fine recorded: Rs %s (unpaid).\n",
-               daysLate, row[0]);
+               daysLate, fineAmount);
 
-    /* Reservations: promoting the next waiting student is added in the
-       reservation module. */
+    /* Tell the librarian who the copy is being held for. */
+    for (int i = 0; i < promoted && i < PROMOTE_MAX; i++)
+        announceReady(promotedIDs[i]);
+
     return 1;
 }
 
@@ -541,7 +278,7 @@ int renewLoan(int loanID)
     int bookID   = atoi(row[3]);
     int memberID = atoi(row[4]);
 
-    int eligible = checkMemberEligible(conn, memberID);
+    int eligible = checkMemberEligible(conn, memberID, 1);
 
     if (eligible != 1)
         return abortTx(conn, NULL);
@@ -645,7 +382,7 @@ static void printLoanRows(MYSQL *conn, const char *sql,
 
             if (showFine)
                 printf("Fine if returned today: Rs %ld\n",
-                       (long)daysOverdue * FINE_RATE_PER_DAY);
+                       calculateFineAmount(daysOverdue));
         }
 
         printf("-------------------------\n");
