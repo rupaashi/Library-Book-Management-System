@@ -1,10 +1,15 @@
 
+import os
+
 from flask import Flask, request, jsonify, send_from_directory
 import mysql.connector
 from mysql.connector import Error
 from pathlib import Path
 
+from library_api import api as library_api
+
 app = Flask(__name__)
+app.register_blueprint(library_api)   # circulation, reservations, fines, reports
 
 # Locate the frontend folder beside the backend folder
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,11 +17,13 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 def get_db_connection():
+    # Credentials come from environment variables, never from the source code.
     return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="Pikachu06@",
-        database="library_db"
+        host=os.environ.get("LIB_DB_HOST", "localhost"),
+        port=int(os.environ.get("LIB_DB_PORT", "3306")),
+        user=os.environ.get("LIB_DB_USER", "root"),
+        password=os.environ.get("LIB_DB_PASS", ""),
+        database=os.environ.get("LIB_DB_NAME", "library_db")
     )
 
 
@@ -29,7 +36,8 @@ def home():
 # Serve CSS and JavaScript
 @app.route("/<path:filename>")
 def frontend_files(filename):
-    if filename in ("style.css", "script.js"):
+    # Serve the frontend's own files (css/, js/, images), nothing else.
+    if filename.endswith((".css", ".js", ".svg", ".ico")):
         return send_from_directory(FRONTEND_DIR, filename)
 
     return jsonify({"error": "File not found"}), 404
@@ -46,9 +54,10 @@ def get_books():
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
-            SELECT bookID, title, author, category,
-                   totalCopies, availableCopies
+            SELECT bookID, title, author, category, isbn, publisher,
+                   totalCopies, availableCopies, active
             FROM BOOKS
+            ORDER BY bookID
         """)
 
         books = cursor.fetchall()
@@ -71,10 +80,22 @@ def add_book():
     title = data.get("title", "").strip()
     author = data.get("author", "").strip()
     category = data.get("category", "").strip()
+    isbn = str(data.get("isbn") or "").strip() or None
+    publisher = str(data.get("publisher") or "").strip() or None
+
+    try:
+        copies = int(data.get("totalCopies", 1))
+    except (TypeError, ValueError):
+        copies = 0
 
     if not title or not author or not category:
         return jsonify({
             "error": "Title, author and category are required."
+        }), 400
+
+    if copies < 1 or copies > 1000:
+        return jsonify({
+            "error": "Number of copies must be between 1 and 1000."
         }), 400
 
     connection = None
@@ -92,10 +113,11 @@ def add_book():
 
         cursor.execute("""
             INSERT INTO BOOKS
-                (bookID, title, author, category,
+                (bookID, title, author, category, isbn, publisher,
                  totalCopies, availableCopies)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (book_id, title, author, category, 1, 1))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (book_id, title, author, category, isbn, publisher,
+              copies, copies))
 
         connection.commit()
 
@@ -110,6 +132,12 @@ def add_book():
     except Error as error:
         if connection:
             connection.rollback()
+
+        if getattr(error, "errno", None) == 1062:
+            return jsonify({
+                "error": "A book with this ISBN already exists."
+            }), 409
+
         return jsonify({"error": str(error)}), 500
 
     finally:
